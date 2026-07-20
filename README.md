@@ -1,11 +1,13 @@
 # How to set up Sonar Vortex in Claude Code
 
+> Last updated: July 2026
+
 ## TL;DR overview
 
 - Sonar Vortex brings project-specific coding standards and code verification into Claude Code, so teams can load relevant guidance and constraints before coding and catch issues in seconds rather than wait for CI.
 - In the demo, Claude Code used SonarQube feedback to correct issues introduced by an edit across several rounds, without human intervention. The PostToolUse hook analyzes each Edit or Write action automatically.
 - The integration also adds secrets detection for prompts and file reads, plus multi-file `DEEP` analysis for cross-file issue detection.
-- The guide covers the Claude Code plugin path. Agentic analysis, architecture, and navigation support different language sets, including Java, Python, JavaScript, TypeScript, and C\#, with CLI alternatives for scripted environments.
+- The guide covers the Claude Code plugin path. Agentic analysis, architecture, and navigation support different language sets, including Java, Python, JavaScript, TypeScript, and C#, with CLI alternatives for scripted environments.
 
 This blueprint sets up [Sonar Vortex](https://www.sonarsource.com/products/sonar-vortex/) inside Claude Code so your agent receives project-specific coding standards before generating code and verifies every edit against SonarQube's full analysis engine in seconds. The demo uses a fork of Microsoft's [gctoolkit](https://github.com/microsoft/gctoolkit) (Java/Maven). The availability of each capability depends on its supported language and project requirements.
 
@@ -161,7 +163,7 @@ sonar hook claude-post-tool-use --project '<YOUR_PROJECT_KEY>'
 ```
 
 **Agent instructions** (`CLAUDE.md`, when selected):
-When agentic analysis is available in a project-scoped configuration, the CLI offers an agentic analysis instructions feature. Selected it adds a managed protocol to the project-root `CLAUDE.md`. The protocol tells Claude Code to run `sonar analyze agentic -depth DEEP` before it completes a turn that changes files, then reruns the analysis after it corrects findings on lines it changed.
+When agentic analysis is available in a project-scoped configuration, the CLI offers an agentic analysis instructions feature. Selecting it adds a managed protocol to the project-root `CLAUDE.md`. The protocol tells Claude Code to run `sonar analyze agentic --depth DEEP` before it completes a turn that changes files, then reruns the analysis after it corrects findings on lines it changed.
 
 **Hook scripts and skill** (`.claude/hooks/` and `.claude/skills/`):
 The `sonar-context-augmentation` skill is how Claude Code accesses context augmentation tools. It calls `sonar context` CLI commands, which talk to a local native binary rather than the Docker container.
@@ -192,9 +194,9 @@ To explore architecture, invoke the skill again:
 /sonar-context-augmentation show me the top-level architecture of this project
 ```
 
-The skill calls `sonar context architecture get-current --ecosystem java --depth 0` and returns root-level modules with their fully qualified names. Architecture tools support Java, JavaScript, TypeScript, Python, and C\#.
+The skill calls `sonar context architecture get-current --ecosystem java --depth 0` and returns root-level modules with their fully qualified names. Architecture tools support Java, JavaScript, TypeScript, Python, and C#.
 
-Semantic navigation tools (call flow tracing, type hierarchy, reference lookup, signature and body search) support Java, C\#, JavaScript, TypeScript, Python, and Rust. These are also accessed through the same skill and run through the local binary.
+Semantic navigation tools (call flow tracing, type hierarchy, reference lookup, signature and body search) support Java, C#, JavaScript, TypeScript, Python, and Rust. These are also accessed through the same skill and run through the local binary.
 
 ## Step 5: Agentic analysis verifying code edits
 
@@ -285,7 +287,7 @@ sonarsource/sonarqube-mcp   Up 3 days
 | :---- | :---- | :---- |
 | `CLAUDE.md` | Managed agentic analysis protocol | End-of-turn analysis instructions |
 | `.mcp.json` | `sonar run mcp --project <key>` | MCP server launch command |
-| `.claude/settings.json` | Three hook entries (PreToolUse, UserPromptSubmit, PostToolUse) | Secrets detection \+ agentic analysis triggers |
+| `.claude/settings.json` | Three hook entries (PreToolUse, UserPromptSubmit, PostToolUse) | Secrets detection + agentic analysis triggers |
 | `.claude/hooks/sonar-sqaa/build-scripts/posttool-sqaa.sh` | `sonar hook claude-post-tool-use --project '<key>'` | Agentic analysis hook script |
 | `.claude/hooks/sonar-secrets/build-scripts/` | `pretool-secrets.sh`, `prompt-secrets.sh` | Secrets detection hook scripts |
 | `.claude/skills/sonar-context-augmentation/SKILL.md` | Skill definition with `sonar context` commands | Context augmentation access |
@@ -300,9 +302,9 @@ sonarsource/sonarqube-mcp   Up 3 days
 
 | Capability | Supported languages |
 | :---- | :---- |
-| Agentic analysis | Java, Python, JS/TS, CSS, HTML, XML, C\#, VB.NET, C++, plus secrets and IaC (Docker, Kubernetes, Terraform) |
-| Navigation (call flow, type hierarchy, references) | Java, C\#, JS/TS, Python, Rust |
-| Architecture (module graph, dependency constraints) | Java, JS/TS, Python, C\# |
+| Agentic analysis | Java, Python, JS/TS, CSS, HTML, XML, C#, VB.NET, C++, plus secrets and IaC (Docker, Kubernetes, Terraform) |
+| Navigation (call flow, type hierarchy, references) | Java, C#, JS/TS, Python, Rust |
+| Architecture (module graph, dependency constraints) | Java, JS/TS, Python, C# |
 
 **Alternative setup paths exist.** This blueprint uses the Claude Code plugin path. You can also set up from the CLI directly with `sonar integrate claude` (for scripted or non-interactive environments) or `sonar integrate` (an interactive menu added in CLI v1.3.0 for discovering all available integrations). The [SonarQube CLI commands reference](https://docs.sonarsource.com/sonarqube-cli/using-sonarqube-cli/commands) covers the CLI entry point in detail.
 
