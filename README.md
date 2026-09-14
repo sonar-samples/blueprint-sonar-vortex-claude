@@ -1,100 +1,101 @@
 # How to set up Sonar Vortex in Claude Code
 
-> Last updated: July 2026
+> Last updated: September 2026
+>
+> The observed demo output reflects its recorded environment and may differ by release, project, organization, and entitlement. Check the current SonarQube documentation before using these instructions in a live environment.
 
 ## TL;DR overview
 
-- Sonar Vortex brings project-specific coding standards and code verification into Claude Code, so teams can load relevant guidance and constraints before coding and catch issues in seconds rather than wait for CI.
-- In the demo, Claude Code used SonarQube feedback to correct issues introduced by an edit across several rounds, without human intervention. The PostToolUse hook analyzes each Edit or Write action automatically.
-- The integration also adds secrets detection for prompts and file reads, plus multi-file `DEEP` analysis for cross-file issue detection.
-- The guide covers the Claude Code plugin path. Agentic analysis, architecture, and navigation support different language sets, including Java, Python, JavaScript, TypeScript, and C#, with CLI alternatives for scripted environments.
+- Sonar Vortex brings project guidance and code verification into Claude Code. In this walkthrough, Vortex context supplied resource-safety guidance before an edit, and Vortex analysis caught an insecure temporary-file choice and drove a correction before the turn finished.  
+- The PostToolUse hook integration analyzes each Edit or Write action, while managed project instructions direct an end-of-turn DEEP analysis across modified files.  
+- The hook integration also adds secrets detection for prompts and file reads. Capability support varies by language, with the complete Vortex analysis matrix provided below.
 
-This blueprint sets up [Sonar Vortex](https://www.sonarsource.com/products/sonar-vortex/) inside Claude Code so your agent receives project-specific coding standards before generating code and verifies every edit against SonarQube's full analysis engine in seconds. The demo uses a fork of Microsoft's [gctoolkit](https://github.com/microsoft/gctoolkit) (Java/Maven). The availability of each capability depends on its supported language and project requirements.
-
-Two Vortex capabilities run inside your agent's coding loop: context augmentation (Guide) injects your project's rules, architecture, and constraints into the agent's context, and agentic loop verification (Verify) runs CI-grade analysis on every file the agent touches without waiting for a pipeline.
+This blueprint sets up [Sonar Vortex](https://www.sonarsource.com/products/sonar-vortex/) inside Claude Code so your agent can load project-specific coding standards before it generates code and then analyze each edit with SonarQube. This particular walkthrough uses a fork of Microsoft's [gctoolkit](https://github.com/microsoft/gctoolkit) with Java and Maven to showcase Vortex capabilities. The first of these that will be addressed is Vortex context, which gives the agent project rules, architecture information, and code context. The second is Vortex analysis, which examines files the agent changes (without waiting for the next pipeline run) and prompts fixes within the code generation loop.
 
 ## When to use this
 
-You want Claude Code to follow your project's existing coding standards and catch issues as it writes code, not after a PR triggers CI. This blueprint covers the Claude Code plugin path. If you're setting up from the SonarQube CLI instead, see the [SonarQube CLI commands reference](https://docs.sonarsource.com/sonarqube-cli/using-sonarqube-cli/commands).
+Use this workflow when you want Claude Code to follow your project's existing coding standards and catch issues as it writes code, before a PR triggers CI. The steps follow the Claude Code plugin path starting from installation.
 
 ## What you'll achieve
 
-- SonarQube plugin installed in Claude Code with the MCP server running in a Docker container
-- Context augmentation delivering coding guidelines, architecture constraints, dependency health checks where available, and semantic code navigation to the agent before it generates code
-- Automatic agentic analysis on every code edit via a PostToolUse hook, with results returned in seconds
-- Secrets detection hooks preventing credentials from leaking into agent prompts
+- The SonarQube plugin installed in Claude Code with the MCP server running in a Docker container  
+- Vortex context delivering coding guidelines and semantic code navigation, plus architecture context when SonarQube Architecture data is available, as well as dependency health checks when SCA is enabled  
+- Automatic Vortex analysis on every code edit via a PostToolUse hook  
+- Secrets detection hooks preventing credentials from leaking into agent prompts  
 - Multi-file DEEP analysis available from the CLI for cross-file issue detection
 
 ## Architecture
 
-![Architecture of the Sonar Vortex Claude Code integration, showing separate context augmentation, hooks, and MCP server paths to SonarQube Cloud](screenshots/architecture.png)
+![Sonar Vortex architecture in Claude Code, showing setup, context, analysis, secrets detection, and MCP paths](screenshots/architecture.png)
 
-The integration has two layers. The **SonarQube plugin** gives Claude Code a base MCP server configuration, setup skills, and a SessionStart hook that validates CLI and hook status on each session. The **SonarQube CLI** (invoked through the plugin's `/sonarqube:sonar-integrate` skill) adds project-specific wiring. That wiring includes a PostToolUse hook for agentic analysis, PreToolUse and UserPromptSubmit hooks for secrets detection, the context augmentation skill, and a project-scoped MCP config.
+The first of the two layers of this integration is the **SonarQube plugin**, which gives Claude Code setup skills and a SessionStart hook that reports CLI and hook status. The second is the **SonarQube CLI**, invoked through `/sonarqube:sonar-integrate`, which adds the project resources used in this walkthrough (Vortex analysis and secrets detection hooks, the Vortex context skill, a project-scoped MCP configuration, and managed end-of-turn analysis instructions in `CLAUDE.md`).
 
-Those two layers produce two separate tool surfaces. With the project-scoped configuration used in this walkthrough, the MCP server exposed 19 tools through Docker for project queries, issue management, and on-demand code analysis. Context augmentation tools for coding guidelines, architecture, navigation, and dependency checks run through a separate local binary accessed via the `/sonar-context-augmentation` skill. The binary runs natively on your machine rather than inside the Docker container, giving it direct filesystem access for navigation and architecture queries.
+The CLI-generated MCP configuration launches the `sonarsource/sonarqube-mcp` Docker container with SonarQube tools for project queries, issues, rules, quality gates, and coverage. It excludes the optional MCP Vortex tools because this workflow runs Vortex analysis through the CLI and hooks, while the `/sonar-context-augmentation` skill calls `sonar context` for Vortex context.
 
 ## What you need before setting up SonarQube with Claude Code
 
-- [SonarQube Cloud](https://www.sonarsource.com/products/sonarqube/cloud/) account on a Team (annual billing) or Enterprise plan
-- [Sonar Agent Essentials](https://www.sonarsource.com/products/agent-essentials) subscription active for your org. This is a separate purchase from the SonarQube Cloud plan. See [plans and pricing](https://www.sonarsource.com/plans-and-pricing/sonarcloud/).
-- Claude Code installed and working
-- Docker Desktop, Podman, or Nerdctl running, because the MCP server runs as a Docker container
-- A project already analyzed in SonarQube Cloud on a long-lived branch (e.g., `main`). Both context augmentation and agentic analysis need data from a prior CI analysis. Without it, agentic analysis has no project context to restore, and context augmentation has no issue history to generate guidelines from. If you haven't set this up yet, follow [the SonarQube Cloud GitHub Actions guide](https://docs.sonarsource.com/sonarqube-cloud/analyzing-source-code/ci-based-analysis/github-actions-for-sonarcloud/). Automatic Analysis is not sufficient for Java projects (results are degraded).
-- The SonarQube CLI is installed automatically during the integration step, but if you prefer to install it beforehand, see [cli.sonarqube.com](https://cli.sonarqube.com)
+- [SonarQube Cloud](https://www.sonarsource.com/products/sonarqube/cloud/) account on an Enterprise plan or annual Team plan.  
+- [Sonar Agent Essentials](https://www.sonarsource.com/products/agent-essentials) subscription active for your org. See [plans and pricing](https://www.sonarsource.com/plans-and-pricing/).  
+- Claude Code installed and working  
+- Docker Desktop, Podman, or Nerdctl running, because the MCP server runs as a Docker container  
+- A project analyzed in CI on a long-lived branch (for example, `main`). This is a prerequisite for Vortex analysis, which restores CI-collected dependencies, compiled artifacts, type information, and build configuration by project key and branch for full precision. Local semantic navigation and catalog-based guidelines work without CI analysis. If you have not set this up, follow [the SonarQube Cloud GitHub Actions guide](https://docs.sonarsource.com/sonarqube-cloud/analyzing-source-code/ci-based-analysis/github-actions-for-sonarcloud/). Automatic Analysis is not sufficient for Java projects because only basic analysis results are returned.  
+- The integration checks whether the SonarQube CLI is installed and provides installation guidance when it is missing. To install it beforehand, see [cli.sonarqube.com](https://cli.sonarqube.com).
 
-## Step 1: Plugin installed and activated
+This demonstration remains scoped to SonarQube Cloud. SonarQube Server 2026.5 Enterprise and Data Center editions support Claude integration and Vortex analysis with a Vortex subscription, but this blueprint does not promise the complete CLI-native Vortex context capability set on SonarQube Server.
 
-Open Claude Code in any directory and install the SonarQube plugin from the Anthropic plugin marketplace:
+## Step 1. Install and activate the plugin
 
-```text
-/plugin
-```
+Open Claude Code in any directory, run `/plugin` to open the plugin browser, search for `sonarqube` in the Discover tab, and install with local (repository-only) scope:
 
-Select the SonarQube plugin.
+![Claude Code confirming that the SonarQube plugin is active after installation](screenshots/plugin-installed.png)
 
-![Claude Code confirming that the SonarQube plugin was installed and requires a plugin reload](screenshots/plugin-installed.png)
+The plugin's slash commands become available in the same session without a restart. You can also install directly with `/plugin install sonarqube@claude-plugins-official`.
 
-After installation completes:
+## Step 2. Configure the integration
 
-```text
-/reload-plugins
-```
-
-The plugin is now loaded but not yet wired to your project.
-
-## Step 2: Integration configured
-
-Open a new Claude Code session in your project directory. The plugin's SessionStart hook fires and checks for existing integration. If setup is incomplete, it tells you.
+Open a new Claude Code session in your project directory. The plugin's SessionStart hook should fire and check for existing integration. If setup is incomplete, it tells you.
 
 Run the integration skill:
 
-```text
+```shell
 /sonarqube:sonar-integrate
 ```
 
-The skill walks through four checks:
+The skill guides you through several checks:
 
-1. **CLI check** — verifies the SonarQube CLI is installed and runs `sonar self-update` to ensure v1.3.0 or later. If the CLI isn't installed, it shows install commands.
-2. **Auth check** — runs `sonar auth status`. If you're already authenticated to SonarQube Cloud, it skips ahead.
-3. **Auth login** — if not authenticated, select your SonarQube Cloud region (EU or US), enter your org key, and complete browser-based authentication.
-4. **Integration** — asks whether to configure for the current project or globally. Choose "Current project only" (recommended). The skill runs `sonar integrate claude` under the hood.
+1. **CLI check**: verifies that the SonarQube CLI is installed and provides installation guidance when it is missing.  
+2. **Auth check**: runs `sonar auth status`. If you are already authenticated, it skips ahead.  
+3. **Auth login**: if needed, connects to your configured SonarQube platform and completes browser-based authentication.  
+4. **Container runtime check**: verifies that Docker, Podman, or Nerdctl is available and running.  
+5. **Integration**: asks whether to configure the current project or globally. Choose "Current project only" (recommended), because Vortex is project-scoped and global integration skips it. The skill delegates to `sonar integrate claude --non-interactive`.
 
-The integration summary confirms:
+With authentication already configured, the skill skipped the login flow, confirmed the latest CLI version, and proceeded directly to scope selection. After selecting "Current project only," the CLI discovered the project from the `origin` Git remote and installed all components:
 
-```text
-✅ SonarQube integration is ready.
+```
+Installed
+  ✓  secret scanning hooks
+  ✓  Vortex analysis hook
+  ✓  Vortex
+  ✓  MCP server
 
-  sonarqube-cli:     up to date (v1.3.0)
-  Authentication:    token stored in system keychain (sonarcloud.io / <your-org>)
-  MCP Server:        configured (ensure a container runtime (Docker, Podman,
-                     or Nerdctl) is running, then restart the agent session
-                     if tools do not appear)
-  Secrets scanning:  hooks registered via sonar integrate claude
+=== Setup complete! ===
 ```
 
-## Step 3: What it configured
+In a subsequent fresh session, the SessionStart hook confirmed both integrations:
 
-After integration, your project directory contains three new configuration surfaces. If you select agentic analysis instructions during a project-scoped integration, the CLI adds a fourth:
+```
+SessionStart:startup says: SonarQube plugin initialised.
+  sonarqube-cli: ✓ found
+  SonarQube hooks: ✓ Secrets Detection, Vortex analysis
+```
+
+If you are not already authenticated, you will see the connection-type selection and login steps before the scope prompt. The integration output also instructs you to restart the session if MCP tools do not appear.
+
+![Claude Code confirming SonarQube integration, configured MCP server, and registered secrets detection hooks](screenshots/integration-confirmed.png)
+
+## Step 3. Review the generated resources
+
+After integration, the CLI generates the project resources that connect Claude Code to SonarQube. The exact set depends on Vortex eligibility and the selections made during integration.
 
 **MCP server config** (`.mcp.json`):
 
@@ -109,42 +110,23 @@ After integration, your project directory contains three new configuration surfa
 }
 ```
 
-The `sonar run mcp` command launches the `sonarsource/sonarqube-mcp` Docker container with stdio transport. No `--toolsets` flag appears here. The CLI passes a curated set of tool categories to the container (issues, rules, quality gates, coverage, analysis, and others), excluding context augmentation tools because those run through the local binary instead.
+The `sonar run mcp` command launches the `sonarsource/sonarqube-mcp` Docker container with stdio transport. The CLI exposes generic tool categories for issues, rules, quality gates, coverage, and other project queries while excluding the optional MCP Vortex tools. Vortex context uses `sonar context`, and Vortex analysis uses the CLI's direct analysis path.
 
 **Hook configuration** (`.claude/settings.json`):
+
+In this run, the generated settings contained three hook-event entries.
 
 ```json
 {
   "hooks": {
     "PreToolUse": [
-      {
-        "matcher": "Read",
-        "hooks": [{
-          "type": "command",
-          "command": ".claude/hooks/sonar-secrets/build-scripts/pretool-secrets.sh",
-          "timeout": 60
-        }]
-      }
+      { "matcher": "Read", "hooks": [{ "type": "command", "command": "...pretool-secrets.sh" }] }
     ],
     "UserPromptSubmit": [
-      {
-        "matcher": "*",
-        "hooks": [{
-          "type": "command",
-          "command": ".claude/hooks/sonar-secrets/build-scripts/prompt-secrets.sh",
-          "timeout": 60
-        }]
-      }
+      { "matcher": "*", "hooks": [{ "type": "command", "command": "...prompt-secrets.sh" }] }
     ],
     "PostToolUse": [
-      {
-        "matcher": "Edit|Write",
-        "hooks": [{
-          "type": "command",
-          "command": ".claude/hooks/sonar-sqaa/build-scripts/posttool-sqaa.sh",
-          "timeout": 60
-        }]
-      }
+      { "matcher": "Edit|Write", "hooks": [{ "type": "command", "command": "...posttool-sqaa.sh" }] }
     ]
   }
 }
@@ -152,76 +134,83 @@ The `sonar run mcp` command launches the `sonarsource/sonarqube-mcp` Docker cont
 
 Each hook serves a different purpose:
 
-- **PreToolUse** (matcher: `Read`) — secrets detection. Scans file content before it enters the agent's context.
-- **UserPromptSubmit** (matcher: `*`) — secrets detection. Scans every user prompt for credentials before processing.
-- **PostToolUse** (matcher: `Edit|Write`) — agentic analysis. Fires after every code edit, sending the changed file to SonarQube Cloud's analysis engine.
+- **PreToolUse** (matcher: `Read`): secrets detection. Scans file content before it enters the agent's context.  
+- **UserPromptSubmit** (matcher: `*`): secrets detection. Scans every user prompt for credentials before processing.  
+- **PostToolUse** (matcher: `Edit|Write`): Vortex analysis. Fires after code edits, sending the changed file to SonarQube's analysis engine.
 
-The PostToolUse hook points to a shell script wrapper, not the CLI directly. The script checks for the `sonar` CLI on PATH (exiting silently if missing) and then calls:
+The PostToolUse hook points to a shell script wrapper that checks for the `sonar` CLI on PATH and then calls:
 
 ```shell
 sonar hook claude-post-tool-use --project '<YOUR_PROJECT_KEY>'
 ```
 
-**Agent instructions** (`CLAUDE.md`, when selected):
-When agentic analysis is available in a project-scoped configuration, the CLI offers an agentic analysis instructions feature. Selecting it adds a managed protocol to the project-root `CLAUDE.md`. The protocol tells Claude Code to run `sonar analyze agentic --depth DEEP` before it completes a turn that changes files, then reruns the analysis after it corrects findings on lines it changed.
+**Managed end-of-turn instructions** (`CLAUDE.md`): For a Vortex-eligible and project-scoped integration, the CLI adds a protocol to the project-root `CLAUDE.md`. The protocol instructs Claude Code to run `sonar analyze agentic --depth DEEP` before completing a turn that had file changes. It then directs the agent to fix findings on lines it touched and rerun analysis. These are installed agent instructions rather than enforcement: the CLI runs the analysis, while agent compliance with the full protocol depends on the model's adherence to the instructions.
 
-**Hook scripts and skill** (`.claude/hooks/` and `.claude/skills/`):
-The `sonar-context-augmentation` skill is how Claude Code accesses context augmentation tools. It calls `sonar context` CLI commands, which talk to a local native binary rather than the Docker container.
+**Vortex context skill** (`.claude/skills/sonar-context-augmentation/SKILL.md`): The installed skill is how Claude Code accesses Vortex context. It calls `sonar context` CLI commands, using a dependency graph built from the local workspace for semantic navigation and SonarQube Architecture data for architecture queries.
 
-![Project .claude directory after integration, with Sonar secrets and agentic-analysis hooks plus the context augmentation skill](screenshots/configured-file-structure.png)
+**Hook scripts** (`.claude/hooks/`): Shell script wrappers for secrets detection and Vortex analysis.
 
-## Step 4: Context augmentation working
+![Generated Claude Code files, including hooks, settings, and the Vortex context skill](screenshots/generated-resources.png)
 
-Context augmentation provides four capability categories: coding guidelines based on your project's issue history, architecture constraints (module dependency graph and allowed couplings), dependency health checks where available (vulnerability, malware, and license compliance), and semantic code navigation (AST-based search, call flow tracing, type hierarchy).
+## Step 4. Load Vortex context
 
-The integration installs a project-scoped `/sonar-context-augmentation` skill. In this walkthrough, the skill was invoked explicitly to show the returned guidance and constraints, as Claude Code can invoke it when the task calls for project context, but the behavior is not guaranteed. If coding guidelines are desired when running a task, invoke the skill explicitly or enforce the workflow in project instructions.
+Vortex context provides coding guidelines and semantic code navigation. When SonarQube Architecture data is available, it also provides architecture context, while dependency health checks require SCA. Project-specific guidelines use historical SonarQube issues from the project, while catalog-based guidelines work without project issue history.
+
+The integration installs a project-scoped `/sonar-context-augmentation` skill. The agent may load context on its own when the task calls for it (Step 5), but invoke the skill explicitly when you want to guarantee that guidance is loaded before the agent starts writing code.
 
 Invoke the skill:
 
-```text
+```shell
 /sonar-context-augmentation what are the coding guidelines for this project?
 ```
 
-The skill calls `sonar context guidelines get` under the hood. You'll see it runs a shell command, and then project-specific guidelines returned as a formatted table.
+Here, Claude Code requested approval before running `sonar context guidelines get`. On first invocation, the command auto-started a local daemon for the workspace and returned project-specific guidelines under a `MUST FOLLOW` heading with a numbered rules list:
 
-![Claude Code invoking the context augmentation skill, which runs sonar context guidelines get for Java](screenshots/context-augmentation-invocation.png)
+![Claude Code approval prompt for the Vortex context guidelines command](screenshots/guidelines-approval.png)
 
-The guidelines reflect your project's actual issue history in SonarQube Cloud. A project with many resource leak issues surfaces "close resources" prominently; a project with naming violations leads with naming conventions.
+![Vortex context output with the MUST FOLLOW heading and Java coding guidelines](screenshots/guidelines-output.png)
 
 To explore architecture, invoke the skill again:
 
-```text
+```shell
 /sonar-context-augmentation show me the top-level architecture of this project
 ```
 
-The skill calls `sonar context architecture get-current --ecosystem java --depth 0` and returns root-level modules with their fully qualified names. Architecture tools support Java, JavaScript, TypeScript, Python, and C#.
+The skill calls `sonar context architecture get-current --ecosystem java --depth 0` and returns root-level modules with their fully qualified names. Architecture tools support Java, JavaScript, TypeScript, Python, and C\#.
 
-Semantic navigation tools (call flow tracing, type hierarchy, reference lookup, signature and body search) support Java, C#, JavaScript, TypeScript, Python, and Rust. These are also accessed through the same skill and run through the local binary.
+Semantic navigation supports Java, C\#, JavaScript, TypeScript, Python, and Rust.
 
-## Step 5: Agentic analysis verifying code edits
+## Step 5. Use Vortex analysis during a code edit
 
-Agentic analysis fires automatically. Every time Claude Code uses the Edit or Write tool, the PostToolUse hook sends the changed file to SonarQube Cloud's analysis engine and returns results within seconds.
+Vortex analysis runs as Claude Code works. Every time Claude Code uses the Edit or Write tool, the PostToolUse hook sends the changed file to SonarQube's analysis engine, which lets the agent act on feedback before it finishes the turn.
 
-Ask Claude Code to make a code change:
+In this walkthrough, the prompt was:
 
-```text
-In Aggregation.java, add a public method called debugPrintSummary that prints
-the time of first event, time of termination, and estimated runtime to stdout
+```
+Update SingleGCLogFile so a gzip input is decompressed once into a short-lived
+working file for the lifetime of that SingleGCLogFile instance. Subsequent
+stream() calls should read that working file
 ```
 
-After Claude Code edits the file, the PostToolUse hook fires.
+Claude Code automatically loaded the Vortex context skill before editing and retrieved resource-safety and exception-handling guidance, including "Temporary files should not be created in publicly writable directories" and "Resources should be closed."
 
-In the demo, Claude Code added the method using `System.out.println`. SonarQube flagged the `System.out` calls immediately. Without being prompted, the agent searched the codebase for the project's logging pattern (`java.util.logging.Logger`), replaced `System.out.println` with `LOGGER.info()`, and then caught a second issue: SonarQube flagged string concatenation in the log calls because it constructs the string even when the log level is disabled. The agent switched to supplier lambdas (`LOGGER.info(() -> "...")`) to defer evaluation.
+The initial implementation created a working file in the default system temporary directory. Vortex analysis returned feedback to Claude Code through `additionalContext`. Claude Code retrieved the full `java:S5443` rule through the MCP server, revised the implementation to use an owner-only application directory, and resolved the insecure temporary-file choice without a corrective user prompt. After each edit, Claude Code displayed `3 PostToolUse hooks ran`.
 
-The agent corrected the issues introduced by the change through three rounds of feedback, without human intervention. The final DEEP analysis still reported two pre-existing `java:S1124` issues elsewhere in the file.
+![Claude Code prompt requesting the SingleGCLogFile gzip working-file change](screenshots/edit-prompt.png)
 
-![Claude Code edit that adds System.out.println calls in Aggregation.java, followed by SonarQube feedback about the calls](screenshots/agentic-analysis-feedback.png)
+![Claude Code remediation loop after Vortex analysis feedback](screenshots/remediation-loop.png)
 
-The PostToolUse hook and the `run_advanced_code_analysis` MCP tool both invoke SonarQube Cloud agentic analysis. The hook fires automatically on every edit, sending one file per invocation. The MCP tool is on-demand, available through the `/sonarqube:sonar-analyze` skill or direct tool calls. For cross-file detection, use multi-file analysis (Step 6).
+During the same turn, Claude Code removed an unused `LOGGER` field, corrected ignored return values from file-permission setters, and compiled cleanly under Maven.
 
-## Step 6: Multi-file DEEP analysis
+The managed end-of-turn protocol then directed a single-file DEEP analysis, which required approval and returned three findings on untouched lines: two `java:S2095` resource-closing issues in `streamZipFile` and one `java:S7158` string-emptiness issue. The command exited 51 because pre-existing findings were present. Claude Code distinguished those pre-existing findings from its own changes and reported no new findings on the modified code.
 
-Single-file analysis runs automatically via the hook. The `CLAUDE.md` directs the agent to use cross-file analysis at the end of its turn, and you can also use the CLI directly with multiple `--file` flags:
+![Claude Code approval prompt and results for the end-of-turn DEEP analysis](screenshots/deep-analysis.png)
+
+The PostToolUse hook and the `sonar analyze agentic` CLI command both invoke SonarQube's analysis engine. The hook fires automatically on every edit, sending one file per invocation. The `sonar analyze agentic` command is available for on-demand or end-of-turn analysis, either through the managed `CLAUDE.md` instructions or direct CLI invocation. For cross-file detection, use multi-file analysis.
+
+## Step 6. Run multifile DEEP analysis
+
+It’s possible to invoke Vortex multi-file analysis using the CLI directly with multiple `--file` flags:
 
 ```shell
 sonar analyze agentic \
@@ -231,20 +220,13 @@ sonar analyze agentic \
 
 When you pass two or more files, the CLI activates DEEP mode automatically. DEEP analysis sends all files together so the engine can detect issues that span file boundaries.
 
-Sample output:
+Here, two files were analyzed without explicit `--project`, `--branch`, or `--depth` flags:
 
-```text
-  !  api/src/main/java/.../Aggregation.java · 2 issues
-     [1] line 173  Reorder the modifiers to comply with the Java Language Specification.  java:S1124
-     [2] line 179  Reorder the modifiers to comply with the Java Language Specification.  java:S1124
-  !  api/src/main/java/.../Aggregator.java · 2 issues
-     [1] line 178  Merge this if statement with the enclosing one.  java:S1066
-     [2] line 172  Refactor this method to reduce its Cognitive Complexity from 18 to the 15 allowed.  java:S3776
+![SonarQube CLI multifile DEEP analysis output showing four findings](screenshots/multifile-deep-analysis.png)
 
-2 files analyzed · 2 with issues · 4 issues found · DEEP analysis
-```
+The CLI activated DEEP analysis automatically because two files were passed, and the command exited 51 because findings were present.
 
-The `--project` and `--branch` flags are optional when you run from a configured project directory as the CLI infers both from `.mcp.json`. You only need them when running from outside the project or targeting a different branch.
+The `--project` and `--branch` flags are optional when you run from a configured project directory. The CLI resolves the project key from its integration state or project configuration, and detects the current Git branch automatically. You only need these flags when running from outside the project or targeting a different branch.
 
 To force a specific analysis depth on a single file:
 
@@ -254,63 +236,59 @@ sonar analyze agentic \
   --depth DEEP
 ```
 
-The `--depth` flag accepts `STANDARD` (default for single files) or `DEEP` (default for multiple files). If the payload is too large, the CLI splits files into smaller batches automatically.
+The `--depth` flag accepts `STANDARD` (default for single files) or `DEEP` (default for multiple files and change sets). If the payload is too large, the CLI splits files into smaller batches automatically.
 
 ## Verify the setup
 
-After completing the steps above, confirm the full integration is working. Start a fresh Claude Code session in the project directory.
+Start a fresh Claude Code session in the project directory, then work through this checklist:
 
-**SessionStart hook fires:**
-
-![Claude Code SessionStart output confirming the SonarQube CLI and the Secrets Detection and Agentic Analysis hooks](screenshots/session-startup-confirmation.png)
-
-If you see "SonarQube hooks: ✗" or no SessionStart output at all, the plugin isn't loaded. Run `/reload-plugins`.
-
-**MCP tools available:** Ask Claude Code to list MCP tools. In this demo, Claude Code listed 19 tools, including `run_advanced_code_analysis`. Context augmentation tools (`get_guidelines`, `get_current_architecture`, navigation tools) will not appear in this list. The `/sonar-context-augmentation` skill serves them instead.
-
-**Context augmentation and agentic analysis respond:** Confirm `/sonar-context-augmentation` returns project-specific results, and that editing a file (e.g., adding a `System.out.println` in Java) triggers the PostToolUse hook with analysis findings.
-
-**Docker container is running:** In a separate terminal:
+- [ ] Confirm that SessionStart reports `sonarqube-cli: ✓ found` and `SonarQube hooks: ✓ Secrets Detection, Vortex analysis`.  
+- [ ] Check that the project contains `.mcp.json`, `.claude/settings.json`, the generated hook scripts, `.claude/skills/sonar-context-augmentation/SKILL.md`, and the managed `CLAUDE.md` instructions.  
+- [ ] Run `/sonar-context-augmentation what are the coding guidelines for this project?` and confirm that Vortex context returns project-specific results.  
+- [ ] Ask Claude Code to make a controlled code edit, confirm that the PostToolUse status appears, and review how the agent handles any Vortex analysis feedback.  
+- [ ] While the Claude Code session is active, run the command for the container runtime selected by the CLI in another terminal and confirm that the SonarQube MCP container appears:
 
 ```shell
-docker ps --filter "ancestor=sonarsource/sonarqube-mcp" --format "table {{.Image}}\t{{.Status}}"
+# Docker
+docker ps --format "{{.Image}}\t{{.Status}}"
+
+# Podman
+podman ps --format "{{.Image}}\t{{.Status}}"
+
+# Nerdctl
+nerdctl ps --format "{{.Image}}\t{{.Status}}"
 ```
 
-```text
-IMAGE                       STATUS
-sonarsource/sonarqube-mcp   Up 3 days
-```
-
-**Assembled configuration state.** If any verification step failed, cross-check these files against the examples in Step 3:
-
-| File | Contains | Purpose |
-| :---- | :---- | :---- |
-| `CLAUDE.md` | Managed agentic analysis protocol | End-of-turn analysis instructions |
-| `.mcp.json` | `sonar run mcp --project <key>` | MCP server launch command |
-| `.claude/settings.json` | Three hook entries (PreToolUse, UserPromptSubmit, PostToolUse) | Secrets detection + agentic analysis triggers |
-| `.claude/hooks/sonar-sqaa/build-scripts/posttool-sqaa.sh` | `sonar hook claude-post-tool-use --project '<key>'` | Agentic analysis hook script |
-| `.claude/hooks/sonar-secrets/build-scripts/` | `pretool-secrets.sh`, `prompt-secrets.sh` | Secrets detection hook scripts |
-| `.claude/skills/sonar-context-augmentation/SKILL.md` | Skill definition with `sonar context` commands | Context augmentation access |
+The output should include a running container,
 
 ## What to know
 
-**Context augmentation requires explicit invocation.** The `/sonar-context-augmentation` skill should be invoked at the start of each coding task. Without it, Claude Code does not always automatically follow your project's coding guidelines. The skill's own instructions say "ALWAYS invoke this skill on the first prompt," but that instruction is guidance to the agent, not automatic enforcement.
+### Project scope and analysis context
 
-**Agentic analysis needs a prior CI analysis.** If your project hasn't been analyzed in CI on a long-lived branch, the agentic analysis hook will fail silently or return degraded results. The analysis engine restores CI-collected context (compiled artifacts, type information, dependency graphs) to run its full rule set. A project that has only been scanned through Automatic Analysis may not have this context for Java.
+The agent may invoke `/sonar-context-augmentation` when a task calls for context, as it did in Step 5. Invoke the skill explicitly at the start of a coding task when you need to guarantee that project guidance is loaded.
 
-**Stdio transport is required for MCP-delivered capabilities.** MCP-delivered context augmentation and `run_advanced_code_analysis` require stdio transport, which is what the `sonar integrate claude` path configures. The Claude PostToolUse hook invokes the CLI directly.
+Vortex is project-scoped because it needs a project key and project-local files, so choose the current-project integration in Step 2. Run CI analysis on a long-lived branch before using Vortex analysis because the stored dependencies, compiled artifacts, type information, and build configuration enable full analysis precision. Java projects that use Automatic Analysis receive only basic results.
+
+The `sonar system status` command reports Vortex entitlement and usage state. When usage is exhausted, the CLI keeps the integration in place and reports when use can resume.
+
+### SonarQube Server availability
+
+SonarQube Server 2026.5 Enterprise and Data Center editions support Claude integration and Vortex analysis with a Vortex subscription. This walkthrough and prerequisites use SonarQube Cloud.
+
+### Language support
 
 | Capability | Supported languages |
 | :---- | :---- |
-| Agentic analysis | Java, Python, JS/TS, CSS, HTML, XML, C#, VB.NET, C++, plus secrets and IaC (Docker, Kubernetes, Terraform) |
-| Navigation (call flow, type hierarchy, references) | Java, C#, JS/TS, Python, Rust |
-| Architecture (module graph, dependency constraints) | Java, JS/TS, Python, C# |
-
-**Alternative setup paths exist.** This blueprint uses the Claude Code plugin path. You can also set up from the CLI directly with `sonar integrate claude` (for scripted or non-interactive environments) or `sonar integrate` (an interactive menu added in CLI v1.3.0 for discovering all available integrations). The [SonarQube CLI commands reference](https://docs.sonarsource.com/sonarqube-cli/using-sonarqube-cli/commands) covers the CLI entry point in detail.
+| Vortex analysis | Apex, C, C\#, C++, CSS, Dart, Docker, Go, Groovy, HTML, Java, JavaScript, Kotlin, Kubernetes, Objective-C, PHP, PowerShell, Python, Ruby, Shell, SQL, Swift, Terraform, TypeScript, VB.NET |
+| Secrets detection | All files |
+| Taint analysis, a subset of Vortex analysis | Java, JavaScript, TypeScript, C\#, VB.NET |
+| Semantic navigation: search, source retrieval, call flow, and type hierarchy | Java, C\#, JavaScript, TypeScript, Python, Rust |
+| References in Vortex Context 0.19, installed by CLI 1.7 | Java, C\#, JavaScript, TypeScript, Python |
+| Architecture, including module graphs and dependency constraints | Java, JavaScript, TypeScript, Python, C\# |
 
 ## Next steps
 
-- [Sonar Vortex documentation](https://docs.sonarsource.com/agent-centric-development-cycle/guide/sonar-vortex-context-augmentation) — full reference for context augmentation configuration and capabilities
-- [Agentic analysis documentation](https://docs.sonarsource.com/agent-centric-development-cycle/verify/sonar-vortex-agentic-analysis) — supported languages, analysis depth modes, and CI prerequisites
-- [SonarQube CLI reference](https://docs.sonarsource.com/sonarqube-cli) — all CLI commands including `sonar context`, `sonar analyze`, and `sonar remediate`
-- [SonarQube MCP Server setup](https://docs.sonarsource.com/sonarqube-mcp-server) — environment variables, toolset configuration, and transport modes
+- [Sonar Vortex context documentation](https://docs.sonarsource.com/agent-centric-development-cycle/inside-your-agent-the-agentic-loop/sonar-vortex-context): full reference for Vortex context configuration and capabilities  
+- [Sonar Vortex analysis documentation](https://docs.sonarsource.com/agent-centric-development-cycle/inside-your-agent-the-agentic-loop/sonar-vortex-analysis): supported languages, analysis depth modes, and CI prerequisites  
+- [SonarQube CLI reference](https://docs.sonarsource.com/sonarqube-cli): all CLI commands including `sonar context`, `sonar analyze`, and `sonar remediate`  
+- [SonarQube MCP Server setup](https://docs.sonarsource.com/sonarqube-mcp-server): environment variables, toolset configuration, and transport modes
